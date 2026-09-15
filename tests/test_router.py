@@ -31,7 +31,7 @@ class RouterTests(unittest.TestCase):
             self.router.register(command)
 
     def test_invalid_names_rejected(self):
-        for name in ("", "UPPER", " test", "two words"):
+        for name in ("", "UPPER", " test", "two  words"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 self.router.register(Command(name, "Test", lambda: CommandResult()))
 

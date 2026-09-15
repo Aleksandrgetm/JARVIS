@@ -1,1 +1,1 @@
-"""Reserved for future action implementations."""
+"""Validated native macOS actions."""

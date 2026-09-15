@@ -4,10 +4,12 @@ import logging
 import sys
 from typing import Callable, Optional
 
+from actions.commands import register_macos_commands
+from actions.macos import ActionError
 from core.commands import register_system_commands
 from core.config import Config
 from core.permissions import PermissionManager
-from core.router import Router, UnknownCommandError
+from core.router import CommandInputError, Router, UnknownCommandError
 
 
 def clear_terminal() -> None:
@@ -29,6 +31,7 @@ class Assistant:
         self.router = router if router is not None else Router(PermissionManager())
         if router is None:
             register_system_commands(self.router, config)
+            register_macos_commands(self.router, config, logger)
         self._read = reader
         self._write = writer
         self._clear = clearer
@@ -42,8 +45,8 @@ class Assistant:
                     text = self._read(self.config.prompt)
                     if not text.strip():
                         continue
-                    result = self.router.dispatch(text)
-                    self.logger.info("Command completed: %r", text.strip().lower())
+                    result = self.router.dispatch(text, confirm=self._confirm)
+                    self.logger.info("Command processed")
                     if result.should_clear:
                         self._clear()
                     if result.message:
@@ -53,6 +56,9 @@ class Assistant:
                 except UnknownCommandError:
                     self.logger.warning("Unknown command")
                     self._write("Unknown command. Type 'help' for available commands.")
+                except (CommandInputError, ActionError) as error:
+                    self.logger.warning("Command rejected or action failed: %s", type(error).__name__)
+                    self._write(str(error))
                 except PermissionError:
                     self.logger.warning("Command permission denied")
                     self._write("Permission denied.")
@@ -64,3 +70,8 @@ class Assistant:
                     self._write("Command failed. See data/logs/jarvis.log for details.")
         finally:
             self.logger.info("System offline")
+
+    def _confirm(self, prompt: str) -> bool:
+        accepted = self._read(prompt).strip().lower() in ("y", "yes")
+        self.logger.info("Action %s", "confirmed" if accepted else "cancelled")
+        return accepted

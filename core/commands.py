@@ -7,7 +7,12 @@ from core.router import Command, CommandResult, Router
 def register_system_commands(router: Router, config: Config) -> None:
     def help_command() -> CommandResult:
         lines = ["Available commands:"]
-        lines.extend("  {:<8} {}".format(c.name, c.description) for c in router.commands)
+        categories = list(dict.fromkeys(c.category for c in router.commands))
+        for category in categories:
+            if len(categories) > 1:
+                lines.append(category)
+            lines.extend("  {:<22} {}".format(c.usage or c.name, c.description)
+                         for c in router.commands if c.category == category)
         return CommandResult("\n".join(lines))
 
     for command in (

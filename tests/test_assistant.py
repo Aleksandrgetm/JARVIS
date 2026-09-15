@@ -20,7 +20,7 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(self.output[0], "JARVIS\nSystem online.\n")
         self.assertIn("Unknown command. Type 'help' for available commands.", self.output)
         self.assertIn("JARVIS is online.", self.output)
-        self.assertIn("JARVIS 0.1.0", self.output)
+        self.assertIn("JARVIS 0.2.0", self.output)
         self.assertEqual(self.output[-1], "System offline.")
         self.clearer.assert_called_once_with()
 
