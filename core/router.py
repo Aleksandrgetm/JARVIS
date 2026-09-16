@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import shlex
+from core.performance import mark
 from typing import Callable, Dict, Optional, Tuple
 
 from core.permissions import PermissionLevel, PermissionManager
@@ -12,6 +13,8 @@ class CommandResult:
     message: str = ""
     should_exit: bool = False
     should_clear: bool = False
+    conversational: bool = False
+    streamed: bool = False
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,7 @@ class Router:
                 return CommandResult("Cancelled.")
         if not self._permissions.is_allowed(command.permission, confirmed=confirmed):
             raise PermissionError("Permission denied for command: " + command.name)
+        mark("action_execution")
         result = (command.handler(argument) if command.argument_parser is not None
                   else command.handler())
         if not isinstance(result, CommandResult):

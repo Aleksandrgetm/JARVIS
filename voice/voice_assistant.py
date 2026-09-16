@@ -8,6 +8,9 @@ from typing import Callable
 from actions.macos import ActionError
 from core.assistant import clear_terminal
 from core.config import Config
+from core.input_processor import process_input
+from core.performance import LatencyAudit, current_audit
+from voice.speech_queue import SpeechQueue
 from core.router import CommandInputError, Router, UnknownCommandError
 from voice.errors import SpeechError
 from voice.normalizer import VoiceCommandNormalizer
@@ -21,15 +24,22 @@ class VoiceAssistant:
                  speech: SpeechToText, tts: TextToSpeech,
                  writer: Callable[[str], None] = print,
                  clearer: Callable[[], None] = clear_terminal,
-                 pause: Callable[[float], None] = time.sleep) -> None:
+                 pause: Callable[[float], None] = time.sleep, brain=None) -> None:
         self.config, self.logger, self.router = config, logger, router
         self.speech, self.tts = speech, tts
         self.normalizer = VoiceCommandNormalizer()
         self._write, self._clear, self._pause = writer, clearer, pause
+        self.brain = brain
+        self._audit = None
 
     def _say(self, text: str, spoken: str = "") -> None:
         self._write("JARVIS: " + text)
         sys.stdout.flush()
+        if self._audit is not None:
+            self._audit.mark('first_speech_chunk_ready')
+            self._audit.mark('first_speakable_sentence')
+            self._audit.mark('tts_start')
+            self._audit.mark('total')
         try:
             self.tts.speak(spoken or text)
         except Exception:
@@ -40,7 +50,12 @@ class VoiceAssistant:
     def _listen(self, timeout: float) -> str:
         self._write("Listening...")
         sys.stdout.flush()
-        text = self.speech.recognize(timeout)
+        started = time.monotonic()
+        try:
+            text = self.speech.recognize(timeout)
+        finally:
+            if self.config.voice_debug:
+                self._write(f"[PERF] stt={(time.monotonic() - started) * 1000:.1f}ms")
         if text.strip():
             self.logger.info("VOICE speech_recognized")
             self._write("You: " + text)
@@ -79,23 +94,30 @@ class VoiceAssistant:
             self.speech.prepare()
             self._say("Система готова.")
             while True:
+                self._audit = LatencyAudit(self.config.voice_debug, self._write)
+                audit_token = current_audit.set(self._audit)
+                speech_queue = SpeechQueue(self._say)
                 try:
+                    self._audit.mark('listen_start')
                     text = self._listen(self.config.voice_listen_timeout)
-                    command = self.normalizer.normalize(text)
-                    if not command:
+                    self._audit.mark("stt_final")
+                    if not text.strip():
                         self.logger.info("VOICE command_unrecognized")
                         self._say("Команда не распознана.")
                         self._pause(self.config.voice_retry_cooldown)
                         continue
-                    self.logger.info("VOICE command_normalized")
-                    result = self.router.dispatch(command, confirm=self._confirm)
-                    self.logger.info("VOICE action_cancelled" if result.message == "Cancelled."
-                                     else "VOICE action_executed")
+                    result = process_input(text, router=self.router, normalizer=self.normalizer,
+                                           confirm=self._confirm, brain=self.brain, voice=True,
+                                           on_sentence=speech_queue.submit)
+                    speech_queue.finish(cancel=not result.streamed)
+                    self.logger.info("VOICE response" if result.conversational else "VOICE action_processed")
                     if result.should_clear:
                         self._clear()
-                    response = response_text(result.message)
+                    response = result.message if result.conversational else response_text(result.message)
                     # Long help/system output stays available in text, without a long monologue.
-                    self._say(response, "Команда выполнена. Подробности в терминале." if "\n" in response else "")
+                    if not result.streamed:
+                        self._say(response, "Команда выполнена. Подробности в терминале."
+                                  if "\n" in response and not result.conversational else "")
                     if result.should_exit:
                         break
                 except (KeyboardInterrupt, EOFError):
@@ -117,6 +139,13 @@ class VoiceAssistant:
                     self.logger.warning("VOICE processing_failed")
                     self._say("Не удалось обработать команду.")
                     self._pause(self.config.voice_retry_cooldown)
+                finally:
+                    try:
+                        speech_queue.finish(cancel=True)
+                    finally:
+                        self._audit.summary()
+                        current_audit.reset(audit_token)
+                        self._audit = None
         except SpeechError as error:
             self.logger.warning("VOICE startup_failed")
             self._write(str(error))

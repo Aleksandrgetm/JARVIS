@@ -67,7 +67,7 @@ class ListenerTests(unittest.TestCase):
         popen.return_value = self.make_process()
         listener.prepare()
         listener.capture(5)
-        self.assertEqual(popen.call_args.args[0], ['/tmp/jarvis-speech-test', '--listen', 'ru-RU', '5', 'local', '7.0', '1.8', '2.5', 'quiet', '0.9'])
+        self.assertEqual(popen.call_args.args[0], ['/tmp/jarvis-speech-test', '--listen', 'ru-RU', '5', 'local', '7.0', '0.7', '2.5', 'quiet', '0.9'])
         self.assertIs(popen.call_args.kwargs['shell'], False)
         self.assertTrue(popen.call_args.kwargs['start_new_session'])
         popen.return_value.stdout.close.assert_called()
@@ -168,26 +168,33 @@ class ListenerTests(unittest.TestCase):
 
 class TTSAdapterTests(unittest.TestCase):
     @patch('voice.text_to_speech.platform.system', return_value='Darwin')
-    @patch('voice.text_to_speech.subprocess.run', return_value=Mock(returncode=0))
-    def test_text_is_passed_via_stdin_not_shell_or_options(self, run, platform_mock):
+    @patch('voice.text_to_speech.subprocess.Popen')
+    def test_text_is_passed_via_stdin_not_shell_or_options(self, popen, platform_mock):
+        process = popen.return_value.__enter__.return_value
+        process.returncode = 0
         text = '-o /tmp/should-not-be-created; $(whoami)'
         MacOSTextToSpeech().speak(text)
-        self.assertEqual(run.call_args.args[0], ['/usr/bin/say', '-v', 'Milena'])
-        self.assertEqual(run.call_args.kwargs['input'], text)
-        self.assertIs(run.call_args.kwargs['shell'], False)
+        self.assertEqual(popen.call_args.args[0], ['/usr/bin/say', '-v', 'Milena'])
+        process.communicate.assert_called_once_with(input=text, timeout=30)
+        self.assertIs(popen.call_args.kwargs['shell'], False)
 
     @patch('voice.text_to_speech.platform.system', return_value='Darwin')
-    @patch('voice.text_to_speech.subprocess.run')
-    def test_empty_text_and_tts_errors(self, run, platform_mock):
+    @patch('voice.text_to_speech.subprocess.Popen')
+    def test_empty_text_and_tts_errors(self, popen, platform_mock):
         MacOSTextToSpeech().speak('')
-        run.assert_not_called()
-        run.return_value.returncode = 1
+        popen.assert_not_called()
+        process = popen.return_value.__enter__.return_value
+        process.returncode = 1
         with self.assertRaises(TextToSpeechError):
             MacOSTextToSpeech().speak('test')
-        for error in (FileNotFoundError(), subprocess.TimeoutExpired('say', 30)):
-            run.side_effect = error
-            with self.assertRaises(TextToSpeechError):
-                MacOSTextToSpeech().speak('test')
+        popen.side_effect = FileNotFoundError()
+        with self.assertRaises(TextToSpeechError):
+            MacOSTextToSpeech().speak('test')
+        popen.side_effect = None
+        process.communicate.side_effect = [subprocess.TimeoutExpired('say', 30), ('', '')]
+        with self.assertRaises(TextToSpeechError):
+            MacOSTextToSpeech().speak('test')
+        process.kill.assert_called_once()
 
 
 class BuildTests(unittest.TestCase):

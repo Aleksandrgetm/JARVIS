@@ -1,6 +1,7 @@
 """Replaceable STT API and Apple Speech result translation."""
 
 from abc import ABC, abstractmethod
+from core.performance import current_audit
 
 from voice.errors import SpeechError
 from voice.listener import NativeMicrophoneListener
@@ -43,6 +44,9 @@ class AppleSpeechToText(SpeechToText):
 
     def recognize(self, timeout: float) -> str:
         payload = self.listener.capture(timeout)
+        audit = current_audit.get()
+        if audit is not None:
+            audit.import_native(payload.get("perf"))
         self._check(payload)
         text = payload.get("text")
         if not isinstance(text, str) or not text.strip():

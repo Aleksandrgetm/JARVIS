@@ -1,3 +1,4 @@
 # No third-party dependencies. Python standard library only.
 # Voice mode uses Apple Speech/AVFoundation via a small Swift bridge.
 # Requires macOS and Xcode Command Line Tools; no Python packages or ML models.
+# Optional AI provider dependencies: requirements-ai.txt

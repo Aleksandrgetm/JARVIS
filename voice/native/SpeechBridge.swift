@@ -18,6 +18,8 @@ final class SpeechSession {
     private var timer: Timer?
     private var timing: SpeechTiming
     private var transcript = RecognitionTranscript()
+    private var perf: [String: Double] = [:]
+    private let wallOffset = Date().timeIntervalSince1970 - ProcessInfo.processInfo.systemUptime
     private var ending = false
     private var finished = false
     private var microphoneRunning = false
@@ -46,6 +48,15 @@ final class SpeechSession {
     private func trace(_ message: String) {
         guard debug else { return }
         FileHandle.standardError.write(Data(("[VOICE] " + message + "\n").utf8))
+    }
+
+    private func mark(_ name: String, at uptime: Double = ProcessInfo.processInfo.systemUptime) {
+        guard perf[name] == nil else { return }
+        let timestamp = wallOffset + uptime
+        perf[name] = timestamp
+        if debug {
+            FileHandle.standardError.write(Data(("[PERF] \(name) timestamp=\(String(format: "%.6f", timestamp))\n").utf8))
+        }
     }
 
     private func traceError(_ error: NSError) {
@@ -88,7 +99,7 @@ final class SpeechSession {
                         let wasWaiting = self.timing.speechStarted == nil
                         // Recognition is a secondary onset signal for very quiet speech.
                         self.timing.detected(at: ProcessInfo.processInfo.systemUptime)
-                        if wasWaiting { self.trace("speech detected") }
+                        if wasWaiting { self.trace("speech detected"); self.mark("speech_start") }
                     }
                     if result.isFinal {
                         self.trace("final: " + text)
@@ -131,7 +142,10 @@ final class SpeechSession {
                     }
                     let wasWaiting = self.timing.speechStarted == nil
                     self.timing.audio(at: capturedAt, voiced: level >= -45)
-                    if wasWaiting && self.timing.speechStarted != nil { self.trace("speech detected") }
+                    if wasWaiting && self.timing.speechStarted != nil {
+                        self.trace("speech detected")
+                        self.mark("speech_start", at: capturedAt)
+                    }
                 }
             }
             microphoneRunning = true
@@ -167,6 +181,8 @@ final class SpeechSession {
                 self.finish(["status": "no_speech"])
             case .endSilence, .maxDuration:
                 self.trace(self.timing.boundary(at: now) == .maxDuration ? "maximum utterance duration" : "end silence detected")
+                if let lastVoice = self.timing.lastVoice { self.mark("speech_end_estimated", at: lastVoice) }
+                self.mark("speech_end_detected", at: now)
                 self.ending = true
                 lifecycle.beginFinalization(at: now, timeout: self.finalTimeout)
                 if self.transcript.select(allowFallback: false) != nil {
@@ -204,7 +220,10 @@ final class SpeechSession {
         } else {
             lifecycle?.abort()
         }
-        emit(payload)
+        mark("stt_native_final")
+        var output = payload
+        output["perf"] = perf
+        emit(output)
     }
 }
 
@@ -220,12 +239,12 @@ struct SpeechBridge {
             emit(["status": "invalid_configuration"])
         }
         let startTimeout = args.count >= 9 ? Double(args[5]) ?? -1 : 7
-        let endSilence = args.count >= 9 ? Double(args[6]) ?? -1 : 1.8
+        let endSilence = args.count >= 9 ? Double(args[6]) ?? -1 : 0.7
         let finalTimeout = args.count >= 9 ? Double(args[7]) ?? -1 : 2.5
         let debug = args.count >= 9 && args[8] == "debug"
         let minSpeechDuration = args.count == 10 ? Double(args[9]) ?? -1 : 0.9
         guard startTimeout.isFinite && (1...30).contains(startTimeout),
-              endSilence.isFinite && (0.3...3).contains(endSilence),
+              endSilence.isFinite && (0.6...3).contains(endSilence),
               finalTimeout.isFinite && (1...10).contains(finalTimeout),
               minSpeechDuration.isFinite && (0.3...3).contains(minSpeechDuration),
               minSpeechDuration <= timeout else {

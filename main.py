@@ -5,6 +5,7 @@ import argparse
 from core.assistant import Assistant
 from core.config import Config
 from core.logger import setup_logger
+from brain.brain import create_brain
 
 
 def main(argv=None) -> None:
@@ -20,21 +21,25 @@ def main(argv=None) -> None:
         parser.error("--voice-allow-network requires --voice")
     if args.debug and not args.voice:
         parser.error("--debug requires --voice")
-    config = Config(voice_allow_network=args.voice_allow_network, voice_debug=args.debug)
+    config = Config.from_env(voice_allow_network=args.voice_allow_network, voice_debug=args.debug)
     logger = setup_logger(config.log_dir)
-    if args.voice:
-        # Import native voice support only when explicitly requested.
-        from core.bootstrap import create_router
-        from voice.listener import NativeMicrophoneListener
-        from voice.speech_to_text import AppleSpeechToText
-        from voice.text_to_speech import MacOSTextToSpeech
-        from voice.voice_assistant import VoiceAssistant
+    brain = create_brain(config, logger)
+    try:
+        if args.voice:
+            # Import native voice support only when explicitly requested.
+            from core.bootstrap import create_router
+            from voice.listener import NativeMicrophoneListener
+            from voice.speech_to_text import AppleSpeechToText
+            from voice.text_to_speech import MacOSTextToSpeech
+            from voice.voice_assistant import VoiceAssistant
 
-        speech = AppleSpeechToText(NativeMicrophoneListener(config))
-        VoiceAssistant(config, logger, create_router(config, logger), speech,
-                       MacOSTextToSpeech(config.tts_voice)).run()
-    else:
-        Assistant(config=config, logger=logger).run()
+            speech = AppleSpeechToText(NativeMicrophoneListener(config))
+            VoiceAssistant(config, logger, create_router(config, logger), speech,
+                           MacOSTextToSpeech(config.tts_voice), brain=brain).run()
+        else:
+            Assistant(config=config, logger=logger, brain=brain).run()
+    finally:
+        brain.client.close()
 
 
 if __name__ == "__main__":

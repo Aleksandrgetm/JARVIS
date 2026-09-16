@@ -1,0 +1,2 @@
+# Optional official SDK. Install only when enabling the OpenAI provider.
+openai>=2.0.0,<3.0.0

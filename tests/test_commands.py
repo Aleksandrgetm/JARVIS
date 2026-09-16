@@ -20,7 +20,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(self.router.dispatch("status").message, "JARVIS is online.")
 
     def test_version(self):
-        self.assertEqual(self.router.dispatch("version").message, "JARVIS 1.0.0")
+        self.assertEqual(self.router.dispatch("version").message, "JARVIS 1.1.0")
 
     def test_clear(self):
         result = self.router.dispatch("clear")

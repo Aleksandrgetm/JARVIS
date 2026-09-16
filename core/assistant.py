@@ -7,7 +7,9 @@ from typing import Callable, Optional
 from actions.macos import ActionError
 from core.bootstrap import create_router
 from core.config import Config
+from core.input_processor import process_input
 from core.router import CommandInputError, Router, UnknownCommandError
+from voice.normalizer import VoiceCommandNormalizer
 
 
 def clear_terminal() -> None:
@@ -23,6 +25,7 @@ class Assistant:
         reader: Callable[[str], str] = input,
         writer: Callable[[str], None] = print,
         clearer: Callable[[], None] = clear_terminal,
+        brain=None,
     ) -> None:
         self.config = config
         self.logger = logger
@@ -30,6 +33,8 @@ class Assistant:
         self._read = reader
         self._write = writer
         self._clear = clearer
+        self.brain = brain
+        self.normalizer = VoiceCommandNormalizer()
 
     def run(self) -> None:
         self.logger.info("System online")
@@ -40,7 +45,8 @@ class Assistant:
                     text = self._read(self.config.prompt)
                     if not text.strip():
                         continue
-                    result = self.router.dispatch(text, confirm=self._confirm)
+                    result = process_input(text, router=self.router, normalizer=self.normalizer,
+                                           confirm=self._confirm, brain=self.brain)
                     self.logger.info("Command processed")
                     if result.should_clear:
                         self._clear()

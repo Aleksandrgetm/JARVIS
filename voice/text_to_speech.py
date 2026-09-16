@@ -5,6 +5,7 @@ import platform
 import subprocess
 
 from voice.errors import TextToSpeechError
+from core.performance import mark
 
 
 class TextToSpeech(ABC):
@@ -24,9 +25,18 @@ class MacOSTextToSpeech(TextToSpeech):
             raise TextToSpeechError("macOS TTS is unavailable.")
         try:
             # stdin prevents text beginning with '-' from becoming an option.
-            result = subprocess.run(["/usr/bin/say", "-v", self.voice], input=text,
-                                    text=True, capture_output=True, shell=False, timeout=30)
+            with subprocess.Popen(["/usr/bin/say", "-v", self.voice], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, shell=False) as process:
+                mark('first_tts_process_started')
+                try:
+                    process.communicate(input=text, timeout=30)
+                except BaseException:
+                    process.kill()
+                    process.communicate()
+                    raise
+                returncode = process.returncode
         except (OSError, subprocess.TimeoutExpired):
             raise TextToSpeechError("Speech output is unavailable; text mode output remains active.") from None
-        if result.returncode != 0:
+        if returncode != 0:
             raise TextToSpeechError("Speech output failed. Check the configured macOS voice.")

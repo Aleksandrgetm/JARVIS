@@ -7,6 +7,7 @@ from typing import Optional
 
 class VoiceCommandNormalizer:
     SIMPLE = {
+        "status": "status", "version": "version", "help": "help",
         "выключи звук": "mute", "включи звук": "unmute",
         "сделай скриншот": "screenshot", "информация о системе": "system info",
         "статус": "status", "версия": "version", "помощь": "help",
@@ -71,3 +72,12 @@ class VoiceCommandNormalizer:
     def is_confirmation(self, text: str) -> bool:
         # Exact replies only: "да нет", "да открой ..." must not grant permission.
         return self.clean(text).casefold() in ("да", "подтверждаю", "yes")
+
+    def normalize_confident(self, text: str) -> Optional[str]:
+        """Only exact known app aliases bypass AI; broad natural phrases must not."""
+        command = self.normalize(text)
+        if command and command.startswith("open app "):
+            target = " ".join(shlex.split(command)[2:])
+            if target not in self.APPS.values():
+                return None
+        return command

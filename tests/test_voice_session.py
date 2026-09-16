@@ -42,7 +42,7 @@ class VoiceSessionTests(unittest.TestCase):
         self.assertEqual(listener.capture.call_count, 3)
         session._pause.assert_called_once_with(0.4)
         self.assertIn('No speech detected.', self.output)
-        self.assertIn('JARVIS: JARVIS 1.0.0', self.output)
+        self.assertIn('JARVIS: JARVIS 1.1.0', self.output)
         self.assertEqual(self.output.count('JARVIS voice session stopped.'), 1)
 
     def make_session(self, phrases, **kwargs):
@@ -130,7 +130,7 @@ class VoiceSessionTests(unittest.TestCase):
         session = self.make_session(['версия', 'выход'])
         self.tts.speak.side_effect = RuntimeError('private output')
         session.run()
-        self.assertIn('JARVIS: JARVIS 1.0.0', self.output)
+        self.assertIn('JARVIS: JARVIS 1.1.0', self.output)
         self.assertIn('JARVIS voice session stopped.', self.output)
         self.assertNotIn('private output', str(self.logger.mock_calls))
 
@@ -173,9 +173,9 @@ class VoiceSessionTests(unittest.TestCase):
         session.run()
         session._pause.assert_called_once_with(0.4)
         self.assertIn('No speech detected.', self.output)
-        self.assertIn('JARVIS: JARVIS 1.0.0', self.output)
+        self.assertIn('JARVIS: JARVIS 1.1.0', self.output)
         self.assertEqual(self.speech.recognize.call_count, 3)
-        self.assertLess(self.output.index('You: версия'), self.output.index('JARVIS: JARVIS 1.0.0'))
+        self.assertLess(self.output.index('You: версия'), self.output.index('JARVIS: JARVIS 1.1.0'))
 
     def test_native_recognizer_error_stops_instead_of_restarting_broken_engine(self):
         from voice.speech_to_text import AppleSpeechToText
