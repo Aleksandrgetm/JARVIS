@@ -4,11 +4,9 @@ import logging
 import sys
 from typing import Callable, Optional
 
-from actions.commands import register_macos_commands
 from actions.macos import ActionError
-from core.commands import register_system_commands
+from core.bootstrap import create_router
 from core.config import Config
-from core.permissions import PermissionManager
 from core.router import CommandInputError, Router, UnknownCommandError
 
 
@@ -28,10 +26,7 @@ class Assistant:
     ) -> None:
         self.config = config
         self.logger = logger
-        self.router = router if router is not None else Router(PermissionManager())
-        if router is None:
-            register_system_commands(self.router, config)
-            register_macos_commands(self.router, config, logger)
+        self.router = router if router is not None else create_router(config, logger)
         self._read = reader
         self._write = writer
         self._clear = clearer

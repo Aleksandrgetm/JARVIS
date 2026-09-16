@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>local.jarvis.speech</string>
+  <key>CFBundleName</key><string>JARVIS Speech</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>JARVIS uses the microphone only during an active voice session to recognize your commands.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>JARVIS recognizes voice commands. Apple server processing is allowed only when you explicitly enable network mode.</string>
+</dict></plist>

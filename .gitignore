@@ -6,6 +6,7 @@ venv/
 .env
 data/logs/
 data/screenshots/
+data/voice/
 .pytest_cache/
 .coverage
 htmlcov/
