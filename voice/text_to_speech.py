@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 import platform
 import subprocess
+import time
 
 from voice.errors import TextToSpeechError
 from core.performance import mark
@@ -15,11 +16,12 @@ class TextToSpeech(ABC):
 
 
 class MacOSTextToSpeech(TextToSpeech):
-    def __init__(self, voice: str = "Milena") -> None:
+    def __init__(self, voice: str = "Milena", stop_event=None) -> None:
         self.voice = voice
+        self.stop_event = stop_event
 
     def speak(self, text: str) -> None:
-        if not text.strip():
+        if not text.strip() or (self.stop_event is not None and self.stop_event.is_set()):
             return
         if platform.system() != "Darwin":
             raise TextToSpeechError("macOS TTS is unavailable.")
@@ -30,7 +32,26 @@ class MacOSTextToSpeech(TextToSpeech):
                                   text=True, shell=False) as process:
                 mark('first_tts_process_started')
                 try:
-                    process.communicate(input=text, timeout=30)
+                    if self.stop_event is None:
+                        process.communicate(input=text, timeout=30)
+                    else:
+                        deadline, first = time.monotonic() + 30, True
+                        while True:
+                            if self.stop_event.is_set():
+                                process.terminate()
+                                try:
+                                    process.communicate(timeout=1)
+                                except subprocess.TimeoutExpired:
+                                    process.kill()
+                                    process.communicate()
+                                return
+                            if time.monotonic() >= deadline:
+                                raise subprocess.TimeoutExpired('say', 30)
+                            try:
+                                process.communicate(input=text if first else None, timeout=0.25)
+                                break
+                            except subprocess.TimeoutExpired:
+                                first = False
                 except BaseException:
                     process.kill()
                     process.communicate()

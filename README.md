@@ -897,3 +897,249 @@ python3 main.py --voice --debug
 после запроса: chunking сокращает задержку после появления текста, но сам по себе
 не гарантирует 2000 мс для произвольного AI-вопроса. Identity и deterministic
 Actions обходят этот этап полностью. Модель qwen3:8b и HTTP-настройки сохранены.
+
+## STAGE 5 — AUTOSTART / macOS Background Service
+
+После установки пользовательский LaunchAgent запускает JARVIS при входе в графическую
+сессию macOS. Terminal/iTerm не открывается. Процесс работает от текущего пользователя,
+без sudo, LaunchDaemon, ручного fork или shell-команд из AI.
+
+**В Stage 5 фоновый JARVIS не слушает микрофон.** Он запускает Core, локальное TTS,
+приветствие и проверку доступности Ollama, затем остаётся живым. Wake Word, GUI,
+memory, Neural Voice, Codex integration и Project Manager не добавлены.
+
+Приветствие по умолчанию точно:
+
+> Здравствуйте, сэр. JARVIS готов к работе.
+
+Оно не использует Ollama и не ждёт загрузки модели. Общая настройка `user_title`
+доступна через Config и используется в system prompt Brain естественно и умеренно.
+Время суток не меняет основное приветствие; функция альтернативных приветствий
+подготовлена и протестирована, но автоматический выбор не включён.
+
+### Persistent configuration
+
+Installer создаёт (только если файла ещё нет):
+
+`~/.config/jarvis/config.json`
+
+Пример также доступен в `config/config.example.json`:
+
+```json
+{
+  "ai_provider": "ollama",
+  "ai_model": "qwen3:8b",
+  "ollama_url": "http://127.0.0.1:11434",
+  "ai_timeout": 30,
+  "voice_end_silence": 0.7,
+  "startup_greeting_delay": 3,
+  "tts_voice": "Milena",
+  "user_title": "сэр"
+}
+```
+
+Файл читают все режимы JARVIS. Если его нет, прежнее поведение сохраняется: AI выключен
+до настройки окружения. После установки provider/model больше не требуется экспортировать
+после reboot. `.env` по-прежнему не загружается автоматически.
+
+Порядок: defaults → config.json → environment → явные runtime overrides.
+Поддержаны `JARVIS_AI_PROVIDER`, `JARVIS_AI_MODEL`, `JARVIS_OLLAMA_URL`,
+`JARVIS_AI_TIMEOUT`, `JARVIS_VOICE_END_SILENCE`, `JARVIS_TTS_VOICE`, `JARVIS_USER_TITLE`.
+Environment из Terminal не переносится автоматически в launchd; постоянные настройки
+меняйте в JSON и выполняйте `restart`. API keys/credentials в JSON и plist не записываются.
+OpenAI остаётся optional для ручного запуска с ключом в окружении; Stage 5 настроен на Ollama.
+
+### Установка
+
+Из каталога JARVIS, обычным пользователем:
+
+```bash
+python3 scripts/install_launch_agent.py
+```
+
+Если используете venv, сначала активируйте его или запустите installer его Python:
+
+```bash
+.venv/bin/python scripts/install_launch_agent.py
+```
+
+Installer сохраняет **абсолютный `sys.executable` именно этого интерпретатора**, включая
+путь venv без раскрытия его symlink, абсолютный путь `main.py` и WorkingDirectory.
+Он не полагается на PATH, `~` или shell expansion. Не перемещайте проект/venv после
+установки; после перемещения повторите install из нового расположения.
+
+Plist: `~/Library/LaunchAgents/com.jarvis.assistant.plist`.
+Схема генерируется в `service/launch_agent.py`; вручную копировать шаблоны не нужно.
+Регистрация использует `launchctl enable` и `bootstrap gui/<uid> ...`.
+Повторная установка с теми же путями не перезапускает работающий процесс и не
+перезаписывает пользовательские настройки. Чужой plist или symlink по целевому имени
+не заменяется автоматически.
+
+`RunAtLoad=true`; `KeepAlive` только при ненулевом завершении/аварии,
+`ThrottleInterval=60`, `ExitTimeOut=10`. Штатный SIGTERM/SIGINT приводит к завершению
+с кодом 0. `restart` использует `bootout` с ожиданием освобождения lock, затем
+`bootstrap`, без принудительного `kickstart -k`.
+См. [модель LaunchAgent Apple](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)
+и локальные `man launchctl`, `man launchd.plist` для актуальных параметров macOS.
+
+### Управление
+
+```bash
+python3 scripts/jarvis_service.py status
+python3 scripts/jarvis_service.py start
+python3 scripts/jarvis_service.py stop
+python3 scripts/jarvis_service.py restart
+python3 scripts/jarvis_service.py logs
+```
+
+Все команды адресуют только `com.jarvis.assistant` текущего пользователя.
+`logs` показывает последние до 16 KiB каждого из четырёх файлов и завершается; это не бесконечный tail.
+`stop` unregister-ит службу до следующего start или login; plist остаётся, поэтому
+автозапуск после следующего входа сохраняется. Для удаления автозапуска используйте uninstall.
+
+Пример status после успешного запуска:
+
+```text
+JARVIS Service
+Status: running
+PID: 12345
+CORE: READY
+TTS: READY
+STT: DISABLED
+AI: READY
+OLLAMA: CONNECTED
+MODEL: qwen3:8b
+```
+
+`AI: READY` означает, что локальный Ollama отвечает и модель присутствует в `/api/tags`;
+это не утверждение, что модель сейчас загружена в RAM. Старт greeting не ждёт health.
+Если сервер недоступен, статус AI — WAITING, Ollama — DISCONNECTED; интервалы повторов
+1, 2, 5, 10, 30 секунд, затем максимум 30 секунд. После восстановления доступность
+обновляется автоматически. Если сервер доступен, но модели нет, AI — UNAVAILABLE.
+Модель не скачивается и Ollama не запускается автоматически. Убедитесь, что само приложение
+Ollama запускается при login, если хотите доступность AI сразу после входа.
+
+### Логи, runtime state, cooldown
+
+- `~/Library/Logs/JARVIS/jarvis.log`
+- `~/Library/Logs/JARVIS/jarvis-error.log` — warnings/errors
+- `~/Library/Logs/JARVIS/launchd-stdout.log` — stdout процесса
+- `~/Library/Logs/JARVIS/launchd-stderr.log` — stderr, включая ошибки Python до запуска daemon
+- `~/Library/Application Support/JARVIS/health.json`
+- `~/Library/Application Support/JARVIS/greeting.json`
+- `~/Library/Application Support/JARVIS/voice.lock`
+
+Прикладные `jarvis.log` и `jarvis-error.log` ротируются: 1 MB + 3 резервных файла
+каждый. Отдельные `launchd-stdout.log` / `launchd-stderr.log` открывает launchd в режиме
+добавления: они сохраняют ранние ошибки Python, argparse и импорта. Installer создаёт
+каталог до bootstrap и записывает абсолютные пути файлов в plist. `logs` различает
+пустой файл (`empty file`) и ещё не созданный (`no log yet`); чтение не удаляет диагностику.
+
+Ошибки daemon startup, включая отказ настройки logger, выводятся с traceback в stderr;
+если logger доступен, также в `jarvis-error.log`. Значения известных credentials из
+окружения маскируются; само окружение и локальные переменные не печатаются.
+При входе в daemon фиксируются PID, executable, cwd, home, config/runtime paths.
+
+В логах есть PID, версия, provider, startup/shutdown, voice initialization, изменения
+доступности Ollama и неожиданные ошибки. Audio, chain-of-thought и окружение не записываются.
+
+Greeting state хранит `last_greeting_time` и `last_greeting_session`. Session включает
+macOS boot time и process session id, поэтому новый reboot или logout/login разрешает
+startup greeting даже в пределах 10-минутного cooldown. В той же login session cooldown
+по-прежнему защищает от crash loop, manual restart и нескольких запусков подряд.
+
+Startup greeting выполняется отдельным worker после короткой задержки. По умолчанию
+`JARVIS_STARTUP_GREETING_DELAY=3`, чтобы launchd успел войти в пользовательскую audio
+session после login. Эта задержка не блокирует Core startup, Ollama health polling и
+service status. После успешного TTS state сохраняет текущую session; при ошибке TTS
+service остаётся running и пишет безопасную диагностику в logs. Runtime state не
+содержит диалогов и не является Stage Memory.
+
+### Микрофон, TCC и ручной voice
+
+Stage 5 не создаёт STT listener, не вызывает Apple Speech authorization и не открывает
+аудиовход: `STT: DISABLED` — ожидаемый статус, не ошибка. TTS не требует разрешения
+на микрофон. Не обходятся настройки macOS Privacy/TCC.
+
+Общий kernel lock запрещает одновременно запущенные `--voice` и `--daemon`, даже
+несмотря на отключённый STT у сервиса. При занятом lock второй процесс сообщает
+«JARVIS уже запущен.» и не убивает владельца. После crash lock освобождается ядром;
+оставшийся PID-файл удалять не нужно. Text CLI lock не использует.
+
+Для прежнего ручного voice mode:
+
+```bash
+python3 scripts/jarvis_service.py stop
+python3 main.py --voice
+# После «выход» / Ctrl+C:
+python3 scripts/jarvis_service.py start
+```
+
+При первом ручном запуске выдайте macOS Microphone / Speech Recognition permissions.
+Фоновый и Terminal-контексты могут иметь разные TCC-права; разрешения Terminal не
+гарантируют будущую работу STT из LaunchAgent. На этом этапе фоновое распознавание
+намеренно отключено. Если проект находится на Desktop/Documents, macOS может ограничивать
+фоновый доступ к его файлам; при такой ошибке проверьте запуск вручную и рассмотрите
+перенос проекта в обычный каталог пользователя с повторным install, без обхода TCC.
+
+### Ручная проверка Stage 5
+
+1. Завершите ранее запущенный `--voice`, затем выполните install выше.
+2. Выполните `status`: ожидаются running, PID, Core READY, STT DISABLED.
+3. Услышьте greeting. Выполните `restart`, затем `status`: процесс работает, greeting
+   повторно не звучит из-за cooldown в той же login session.
+4. Выполните `logs`: проверьте `startup greeting decision`, startup/shutdown и состояние Ollama.
+5. Сделайте logout/login или reboot даже раньше чем через 10 минут после первого greeting.
+6. Убедитесь, что Terminal/iTerm не появился и greeting прозвучал автоматически после новой session.
+7. Выполните `status` и убедитесь, что сервис жив. Для проверки работы без Ollama
+   можно временно закрыть Ollama: сервис остаётся running, AI ждёт, после возврата
+   Ollama статус восстанавливается в течение интервала polling.
+
+macOS может показать уведомление о фоновом элементе; управление им доступно в System
+Settings → General → Login Items. Установщик не меняет настройки согласия macOS скрытно.
+
+Удаление:
+
+```bash
+python3 scripts/uninstall_launch_agent.py
+```
+
+Удаляются регистрация службы и только её управляемый plist. Код, config, runtime state,
+логи и модели Ollama сохраняются.
+
+### Проверки
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+launchctl в unit tests подменён; реальные LaunchAgents не устанавливаются. Конфигурация,
+логи и state тестируются во временных каталогах. SIGTERM дополнительно проверяется
+на изолированном дочернем процессе с подменённым TTS, без launchd и микрофона.
+Реальный login/autostart/audio/TCC остаётся отдельной ручной проверкой.
+
+### Диагностика `Last exit: 2` при launchd
+
+Повторный install обновляет старые `/dev/null` stdout/stderr paths: при изменении
+управляемого plist выполняются bootout → запись нового plist → bootstrap. Настройки
+config.json сохраняются. При неизменном plist работающий процесс не перезапускается.
+
+```bash
+python3 scripts/install_launch_agent.py
+python3 scripts/jarvis_service.py status
+python3 scripts/jarvis_service.py logs
+```
+
+В текущем main.py `--daemon` поддержан, а пути main.py, Python, WorkingDirectory,
+launchctl и say абсолютные. Config/runtime основаны на пользовательском home, а не cwd;
+stdin не читается; Ollama проверяется отдельно и не определяет успешность startup.
+Используется GUI domain пользователя с `LimitLoadToSessionType=Aqua`, то есть нужен
+вход в графическую сессию macOS.
+
+Exit 2 сам по себе не устанавливает причину. Он возможен при ошибке аргументов Python
+или argparse, а также когда интерпретатор не смог открыть main.py. Для проекта на
+Desktop необходимо проверить stderr на `can't open file`, `Operation not permitted`
+или `Permission denied`: права Terminal и фонового процесса могут отличаться.
+Успешный ручной запуск не исключает этот сценарий. Путь Python не меняется, TCC не
+обходится. Если строка `daemon entry` отсутствует в jarvis.log, сначала смотрите
+launchd-stderr.log — сбой мог произойти ещё до инициализации Python logger.

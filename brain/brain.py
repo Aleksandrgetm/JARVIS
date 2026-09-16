@@ -24,9 +24,10 @@ class BrainResult:
 
 
 class Brain:
-    def __init__(self, client: AIClient, logger: logging.Logger, debug: bool = False) -> None:
+    def __init__(self, client: AIClient, logger: logging.Logger, debug: bool = False, user_title: str = "сэр") -> None:
         self.client, self.logger = client, logger
         self.debug = debug
+        self.system_prompt = SYSTEM_PROMPT + f'\nAddress the user as "{user_title}" when appropriate, naturally and sparingly; not in every sentence.\n'
 
     def resolve(self, text: str, on_sentence=None) -> BrainResult:
         started = time.monotonic()
@@ -35,7 +36,7 @@ class Brain:
             text = safe_text(text, limit=8000, multiline=True)
             stream = (ConversationStream(on_sentence) if on_sentence is not None
                       and getattr(type(self.client), "supports_streaming", False) else None)
-            arguments = dict(system_prompt=SYSTEM_PROMPT, user_text=text, schema=INTENT_SCHEMA)
+            arguments = dict(system_prompt=self.system_prompt, user_text=text, schema=INTENT_SCHEMA)
             raw = (self.client.complete_stream(on_text=stream.feed, **arguments) if stream is not None
                    else self.client.complete(**arguments))
             intent = parse_intent(raw)
@@ -59,4 +60,4 @@ class Brain:
 
 
 def create_brain(config, logger: logging.Logger) -> Brain:
-    return Brain(create_ai_client(config), logger, debug=config.voice_debug)
+    return Brain(create_ai_client(config), logger, debug=config.voice_debug, user_title=config.user_title)

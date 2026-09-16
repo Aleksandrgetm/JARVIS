@@ -1,0 +1,10 @@
+{
+  "ai_provider": "ollama",
+  "ai_model": "qwen3:8b",
+  "ollama_url": "http://127.0.0.1:11434",
+  "ai_timeout": 30,
+  "voice_end_silence": 0.7,
+  "startup_greeting_delay": 3,
+  "tts_voice": "Milena",
+  "user_title": "сэр"
+}

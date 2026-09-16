@@ -68,6 +68,11 @@ class OpenAIProviderTests(unittest.TestCase):
 
 
 class AIConfigTests(unittest.TestCase):
+    def setUp(self):
+        settings = patch('core.config.load_settings', return_value={})
+        settings.start()
+        self.addCleanup(settings.stop)
+
     @patch.dict(os.environ, {}, clear=True)
     def test_default_is_disabled(self):
         self.assertEqual(Config.from_env().ai_provider, 'disabled')

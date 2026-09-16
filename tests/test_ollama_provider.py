@@ -20,6 +20,9 @@ from tests.test_brain import action, conversation
 
 class OllamaTests(unittest.TestCase):
     def setUp(self):
+        settings = patch('core.config.load_settings', return_value={})
+        settings.start()
+        self.addCleanup(settings.stop)
         self.patch = patch('brain.ollama_provider.HTTPConnection')
         self.opener = self.patch.start().return_value
         self.addCleanup(self.patch.stop)

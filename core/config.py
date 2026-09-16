@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import math
 import os
+from core.settings import load_settings, ConfigurationError
 
 
 @dataclass(frozen=True)
@@ -28,27 +29,46 @@ class Config:
     ai_provider: str = "disabled"
     ai_model: str = "gpt-4.1-mini"
     ai_timeout: float = 15.0
+    user_title: str = "сэр"
+    startup_greeting_delay: float = 3.0
     ollama_url: str = "http://localhost:11434"
 
     @classmethod
-    def from_env(cls, **overrides):
+    def from_env(cls, config_path=None, **overrides):
+        settings = load_settings(config_path)
         # Keys stay in the provider's environment, never in config repr/logs.
-        provider = os.environ.get("JARVIS_AI_PROVIDER", "disabled").strip().lower()
+        provider = os.environ.get("JARVIS_AI_PROVIDER", settings.get("ai_provider", "disabled")).strip().lower()
         default_model, default_timeout = (("qwen3:8b", 30.0) if provider == "ollama"
                                           else ("gpt-4.1-mini", 15.0))
-        model = os.environ.get("JARVIS_AI_MODEL", default_model).strip()
-        ollama_url = os.environ.get("JARVIS_OLLAMA_URL", "http://localhost:11434").strip()
+        model = os.environ.get("JARVIS_AI_MODEL", settings.get("ai_model", default_model)).strip()
+        ollama_url = os.environ.get("JARVIS_OLLAMA_URL", settings.get("ollama_url", "http://localhost:11434")).strip()
         try:
-            timeout = float(os.environ.get("JARVIS_AI_TIMEOUT", str(default_timeout)))
+            timeout = float(os.environ.get("JARVIS_AI_TIMEOUT", str(settings.get("ai_timeout", default_timeout))))
             if not math.isfinite(timeout) or not 1 <= timeout <= 60:
                 raise ValueError()
         except ValueError:
             timeout = default_timeout
         try:
-            end_silence = float(os.environ.get("JARVIS_VOICE_END_SILENCE", "0.7"))
+            end_silence = float(os.environ.get("JARVIS_VOICE_END_SILENCE", str(settings.get("voice_end_silence", 0.7))))
             if not math.isfinite(end_silence) or not 0.6 <= end_silence <= 3:
                 raise ValueError()
         except ValueError:
             end_silence = 0.7
+        title = os.environ.get("JARVIS_USER_TITLE", settings.get("user_title", "сэр")).strip()
+        if not title or len(title) > 32 or not all(c.isalpha() or c in ' -' for c in title):
+            raise ConfigurationError('Invalid JARVIS user_title.')
+        try:
+            greeting_delay = float(os.environ.get("JARVIS_STARTUP_GREETING_DELAY",
+                                                 str(settings.get("startup_greeting_delay", 3))))
+            if not math.isfinite(greeting_delay) or not 0 <= greeting_delay <= 30:
+                raise ValueError()
+        except ValueError:
+            greeting_delay = 3.0
+        voice = os.environ.get("JARVIS_TTS_VOICE", settings.get("tts_voice", "Milena")).strip()
+        if not voice or len(voice) > 128 or any(ord(c) < 32 for c in voice):
+            raise ConfigurationError('Invalid JARVIS TTS voice.')
+        overrides.setdefault("user_title", title)
+        overrides.setdefault("tts_voice", voice)
+        overrides.setdefault("startup_greeting_delay", greeting_delay)
         overrides.setdefault("voice_end_silence", end_silence)
         return cls(ai_provider=provider, ai_model=model, ai_timeout=timeout, ollama_url=ollama_url, **overrides)
